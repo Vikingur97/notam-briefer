@@ -1,20 +1,43 @@
 exports.handler = async function(event, context) {
-  // Only allow POST
+  // Handle CORS preflight
+  if (event.httpMethod === 'OPTIONS') {
+    return {
+      statusCode: 200,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'Content-Type',
+        'Access-Control-Allow-Methods': 'POST, OPTIONS'
+      },
+      body: ''
+    };
+  }
+
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: 'Method Not Allowed' };
   }
 
   const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+
   if (!ANTHROPIC_API_KEY) {
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: 'API key not configured. Add ANTHROPIC_API_KEY to Netlify environment variables.' })
+      headers: { 'Access-Control-Allow-Origin': '*' },
+      body: JSON.stringify({ error: 'ANTHROPIC_API_KEY environment variable is not set in Netlify.' })
+    };
+  }
+
+  let body;
+  try {
+    body = JSON.parse(event.body);
+  } catch(e) {
+    return {
+      statusCode: 400,
+      headers: { 'Access-Control-Allow-Origin': '*' },
+      body: JSON.stringify({ error: 'Invalid JSON body: ' + e.message })
     };
   }
 
   try {
-    const body = JSON.parse(event.body);
-
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -25,20 +48,41 @@ exports.handler = async function(event, context) {
       body: JSON.stringify(body)
     });
 
-    const data = await response.json();
+    const responseText = await response.text();
+
+    let data;
+    try {
+      data = JSON.parse(responseText);
+    } catch(e) {
+      return {
+        statusCode: 500,
+        headers: { 'Access-Control-Allow-Origin': '*' },
+        body: JSON.stringify({ error: 'Anthropic returned non-JSON: ' + responseText.slice(0, 500) })
+      };
+    }
+
+    if (data.error) {
+      return {
+        statusCode: response.status,
+        headers: { 'Access-Control-Allow-Origin': '*' },
+        body: JSON.stringify({ error: 'Anthropic API error: ' + JSON.stringify(data.error) })
+      };
+    }
 
     return {
-      statusCode: response.status,
+      statusCode: 200,
       headers: {
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*'
       },
       body: JSON.stringify(data)
     };
+
   } catch (err) {
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: err.message })
+      headers: { 'Access-Control-Allow-Origin': '*' },
+      body: JSON.stringify({ error: 'Proxy fetch failed: ' + err.message })
     };
   }
 };
