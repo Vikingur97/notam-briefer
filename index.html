@@ -1,0 +1,890 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="NOTAM Briefer">
+<meta name="theme-color" content="#00e5a0">
+<meta name="description" content="AI-powered NOTAM briefing for Part 121 operations">
+<link rel="manifest" href="./manifest.json">
+<link rel="apple-touch-icon" href="./icons/icon-192.png">
+<title>NOTAM Briefer</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #080c10;
+  --surface: #0d1117;
+  --surface2: #131920;
+  --surface3: #1a2230;
+  --border: #1e2d3d;
+  --border2: #263545;
+  --red: #ff3b3b;
+  --red-dim: rgba(255,59,59,0.12);
+  --red-border: rgba(255,59,59,0.3);
+  --yellow: #f5a623;
+  --yellow-dim: rgba(245,166,35,0.1);
+  --yellow-border: rgba(245,166,35,0.3);
+  --green: #00e5a0;
+  --green-dim: rgba(0,229,160,0.08);
+  --green-border: rgba(0,229,160,0.25);
+  --blue: #4da6ff;
+  --blue-dim: rgba(77,166,255,0.1);
+  --text: #e8edf2;
+  --text-dim: #7a8fa6;
+  --text-dimmer: #3d5166;
+  --mono: 'JetBrains Mono', monospace;
+  --sans: 'Syne', sans-serif;
+  --safe-top: env(safe-area-inset-top);
+  --safe-bottom: env(safe-area-inset-bottom);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+html, body, #root { height: 100%; overflow: hidden; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--mono);
+  overscroll-behavior: none;
+}
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.025) 2px, rgba(0,0,0,0.025) 4px);
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* LAYOUT SHELL */
+.shell { display: flex; flex-direction: column; height: 100%; padding-top: var(--safe-top); }
+
+/* HEADER */
+.header {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+  z-index: 50;
+}
+.header-left { display: flex; align-items: center; gap: 10px; }
+.logo-mark {
+  width: 30px; height: 30px;
+  background: var(--green);
+  clip-path: polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%);
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.logo-inner { width: 13px; height: 13px; background: var(--bg); clip-path: polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%); }
+.app-title { font-family: var(--sans); font-size: 1rem; font-weight: 800; letter-spacing: 0.04em; }
+.app-sub { font-size: 0.58rem; color: var(--text-dim); letter-spacing: 0.1em; text-transform: uppercase; }
+.header-actions { display: flex; gap: 8px; }
+.icon-btn {
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  border-radius: 6px;
+  color: var(--text-dim);
+  font-size: 1rem;
+  width: 36px; height: 36px;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  font-family: var(--mono);
+}
+.icon-btn:active { opacity: 0.7; }
+.icon-btn.danger { border-color: var(--red-border); color: var(--red); }
+
+/* TAB BAR */
+.tab-bar {
+  display: flex;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.tab {
+  flex: 1;
+  padding: 10px 8px;
+  text-align: center;
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dimmer);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.15s;
+  font-family: var(--mono);
+}
+.tab.active { color: var(--green); border-bottom-color: var(--green); }
+
+/* CONTENT AREA */
+.content { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.panel { padding: 16px; }
+
+/* BUTTONS */
+.btn {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border: none;
+  cursor: pointer;
+  border-radius: 6px;
+  padding: 10px 18px;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.btn-primary { background: var(--green); color: var(--bg); width: 100%; padding: 14px; font-size: 0.8rem; }
+.btn-primary:active { opacity: 0.8; transform: scale(0.98); }
+.btn-primary:disabled { opacity: 0.4; }
+.btn-ghost { background: var(--surface2); color: var(--text-dim); border: 1px solid var(--border2); }
+.btn-ghost:active { opacity: 0.7; }
+
+/* SECTION LABEL */
+.s-label {
+  font-size: 0.6rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-dimmer);
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+
+/* UPLOAD ZONE */
+.upload-zone {
+  border: 1.5px dashed var(--border2);
+  border-radius: 10px;
+  padding: 22px 16px;
+  text-align: center;
+  background: var(--surface2);
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-bottom: 10px;
+}
+.upload-zone.active { border-color: var(--green); background: var(--green-dim); }
+.upload-icon { font-size: 2rem; margin-bottom: 6px; }
+.upload-text { font-size: 0.72rem; color: var(--text-dim); line-height: 1.5; }
+.upload-text strong { color: var(--green); }
+.upload-sub { font-size: 0.6rem; color: var(--text-dimmer); margin-top: 3px; }
+
+/* FILE BADGES */
+.file-badge {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 0.68rem;
+  margin-bottom: 6px;
+}
+.file-badge-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.file-badge-rm { color: var(--text-dimmer); font-size: 1.1rem; cursor: pointer; padding: 0 2px; }
+.file-badge-rm:active { color: var(--red); }
+.ftag { font-size: 0.55rem; padding: 2px 6px; border-radius: 3px; font-weight: 700; letter-spacing: 0.05em; flex-shrink: 0; }
+.ftag-r { background: var(--blue-dim); color: var(--blue); border: 1px solid rgba(77,166,255,0.3); }
+.ftag-d { background: var(--yellow-dim); color: var(--yellow); border: 1px solid var(--yellow-border); }
+
+/* TEXT AREA */
+textarea {
+  width: 100%;
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  border-radius: 6px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  padding: 12px;
+  resize: none;
+  height: 130px;
+  outline: none;
+  line-height: 1.55;
+  -webkit-appearance: none;
+}
+textarea:focus { border-color: var(--green); }
+
+/* TOGGLE ROW */
+.toggle-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+.toggle-row:last-child { border-bottom: none; }
+.toggle-label { font-size: 0.7rem; color: var(--text-dim); display: flex; align-items: center; gap: 8px; }
+.toggle-label.on { color: var(--text); }
+.toggle-switch {
+  width: 36px; height: 20px;
+  border-radius: 10px;
+  background: var(--border2);
+  position: relative;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+.toggle-switch.on { background: var(--green); }
+.toggle-knob {
+  position: absolute;
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  background: white;
+  top: 2px; left: 2px;
+  transition: transform 0.2s;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.4);
+}
+.toggle-switch.on .toggle-knob { transform: translateX(16px); }
+
+/* FILTER QUICK */
+.filter-quick { display: flex; gap: 8px; margin-bottom: 14px; }
+.fq-btn {
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  padding: 5px 10px;
+  border-radius: 4px;
+  border: 1px solid var(--border2);
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.fq-btn:active { opacity: 0.7; }
+
+/* EMPTY STATE */
+.empty-state {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 60px 24px; gap: 14px; text-align: center;
+}
+.empty-hex { font-size: 3.5rem; opacity: 0.25; }
+.empty-title { font-family: var(--sans); font-size: 1.1rem; color: var(--text-dim); font-weight: 700; }
+.empty-sub { font-size: 0.7rem; color: var(--text-dimmer); line-height: 1.6; max-width: 260px; }
+
+/* LOADING */
+.loading-state {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 60px 24px; gap: 18px;
+}
+.loading-ring {
+  width: 44px; height: 44px;
+  border: 2px solid var(--border);
+  border-top-color: var(--green);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.loading-text { font-size: 0.72rem; color: var(--text-dim); letter-spacing: 0.1em; text-transform: uppercase; }
+.loading-sub { font-size: 0.62rem; color: var(--text-dimmer); text-align: center; }
+
+/* BRIEF */
+.brief-header-card {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+.brief-flight { font-family: var(--sans); font-size: 1.3rem; font-weight: 800; color: var(--green); }
+.brief-sub { font-size: 0.68rem; color: var(--text-dim); margin-top: 2px; }
+.brief-gen { font-size: 0.58rem; color: var(--text-dimmer); margin-top: 6px; }
+
+/* STAT ROW */
+.stat-row { display: flex; gap: 8px; margin-bottom: 16px; }
+.stat-pill {
+  flex: 1; display: flex; flex-direction: column; align-items: center;
+  padding: 10px 6px; border-radius: 8px; gap: 4px;
+}
+.stat-pill.red { background: var(--red-dim); border: 1px solid var(--red-border); }
+.stat-pill.yellow { background: var(--yellow-dim); border: 1px solid var(--yellow-border); }
+.stat-pill.green { background: var(--green-dim); border: 1px solid var(--green-border); }
+.stat-num { font-family: var(--sans); font-size: 1.4rem; font-weight: 800; line-height: 1; }
+.stat-num.red { color: var(--red); }
+.stat-num.yellow { color: var(--yellow); }
+.stat-num.green { color: var(--green); }
+.stat-lbl { font-size: 0.55rem; letter-spacing: 0.1em; text-transform: uppercase; font-weight: 600; }
+.stat-lbl.red { color: var(--red); }
+.stat-lbl.yellow { color: var(--yellow); }
+.stat-lbl.green { color: var(--green); }
+
+/* DISCLAIMER */
+.disclaimer {
+  background: var(--yellow-dim);
+  border: 1px solid var(--yellow-border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 0.64rem;
+  color: var(--yellow);
+  line-height: 1.55;
+  margin-bottom: 16px;
+}
+
+/* AIRPORT SECTION */
+.apt-header {
+  display: flex; align-items: center; gap: 10px;
+  margin-bottom: 12px; margin-top: 20px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.apt-icao { font-family: var(--sans); font-size: 1.05rem; font-weight: 800; color: var(--blue); }
+.apt-role-tag {
+  font-size: 0.55rem; padding: 3px 7px; border-radius: 3px; font-weight: 700;
+  letter-spacing: 0.08em; text-transform: uppercase;
+}
+.role-dep { background: var(--green-dim); color: var(--green); border: 1px solid var(--green-border); }
+.role-dest { background: var(--red-dim); color: var(--red); border: 1px solid var(--red-border); }
+.role-alt { background: var(--yellow-dim); color: var(--yellow); border: 1px solid var(--yellow-border); }
+.role-enroute { background: var(--blue-dim); color: var(--blue); border: 1px solid rgba(77,166,255,0.3); }
+.apt-count { font-size: 0.62rem; color: var(--text-dimmer); margin-left: auto; }
+
+/* CAT GROUP */
+.cat-label {
+  font-size: 0.58rem; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--text-dimmer); font-weight: 600;
+  margin: 12px 0 6px;
+  padding-left: 8px;
+  border-left: 2px solid var(--border2);
+}
+
+/* NOTAM CARD */
+.notam-card {
+  border-radius: 8px;
+  border-left: 3px solid;
+  padding: 12px;
+  margin-bottom: 8px;
+  transition: opacity 0.1s;
+}
+.notam-card:active { opacity: 0.85; }
+.notam-card.severity-red { background: var(--red-dim); border-color: var(--red); }
+.notam-card.severity-yellow { background: var(--yellow-dim); border-color: var(--yellow); }
+.notam-card.severity-green { background: var(--green-dim); border-color: var(--green); }
+
+.nc-top { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 5px; }
+.sev-badge {
+  font-size: 0.55rem; font-weight: 700; letter-spacing: 0.07em;
+  padding: 2px 6px; border-radius: 2px; flex-shrink: 0; margin-top: 2px;
+}
+.badge-red { background: var(--red); color: #000; }
+.badge-yellow { background: var(--yellow); color: #000; }
+.badge-green { background: var(--green); color: #000; }
+.nc-id { font-size: 0.6rem; color: var(--text-dimmer); flex-shrink: 0; margin-top: 2px; }
+.nc-summary { font-size: 0.75rem; color: var(--text); line-height: 1.4; flex: 1; font-weight: 500; }
+.nc-detail { font-size: 0.63rem; color: var(--text-dim); line-height: 1.5; margin-top: 5px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.05); }
+.nc-rwy-flag { font-size: 0.6rem; margin-top: 5px; font-weight: 600; }
+.nc-rwy-flag.direct { color: var(--red); }
+.nc-rwy-flag.indirect { color: var(--text-dimmer); }
+.nc-footer { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 7px; }
+.nc-validity { font-size: 0.58rem; color: var(--text-dimmer); }
+.nc-cat-tag { font-size: 0.55rem; padding: 1px 6px; border-radius: 2px; background: rgba(0,0,0,0.3); color: var(--text-dim); }
+.nc-raw-toggle { font-size: 0.58rem; color: var(--text-dimmer); cursor: pointer; text-decoration: underline; margin-left: auto; }
+.nc-raw-toggle:active { color: var(--blue); }
+.nc-raw {
+  font-size: 0.6rem; color: var(--text-dimmer);
+  background: rgba(0,0,0,0.3); border: 1px solid var(--border);
+  border-radius: 4px; padding: 8px; margin-top: 6px;
+  white-space: pre-wrap; line-height: 1.5; word-break: break-all;
+}
+
+/* INSTALL BANNER */
+.install-banner {
+  background: var(--green-dim);
+  border: 1px solid var(--green-border);
+  border-radius: 10px;
+  padding: 14px;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.install-icon { font-size: 1.5rem; flex-shrink: 0; }
+.install-text { flex: 1; }
+.install-title { font-size: 0.75rem; font-weight: 700; color: var(--green); margin-bottom: 3px; }
+.install-sub { font-size: 0.63rem; color: var(--text-dim); line-height: 1.5; }
+.install-close { color: var(--text-dimmer); cursor: pointer; font-size: 1.1rem; }
+
+/* BOTTOM NAV BAR (mobile) */
+.bottom-bar {
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  padding-bottom: var(--safe-bottom);
+  flex-shrink: 0;
+}
+.bottom-actions {
+  display: flex;
+  gap: 8px;
+  padding: 10px 16px;
+}
+.bottom-btn {
+  flex: 1;
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  border-radius: 8px;
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 10px 6px;
+  cursor: pointer;
+  text-align: center;
+}
+.bottom-btn:active { opacity: 0.7; }
+.bottom-btn.primary { background: var(--green); color: var(--bg); border-color: var(--green); }
+
+/* NO RESULTS */
+.no-results { text-align: center; padding: 40px 20px; color: var(--text-dimmer); font-size: 0.7rem; line-height: 1.8; }
+
+/* DIAGRAMS NOTE */
+.diag-note { background: var(--yellow-dim); border: 1px solid var(--yellow-border); border-radius: 6px; padding: 10px 12px; font-size: 0.63rem; color: var(--yellow); line-height: 1.5; margin-top: 8px; }
+
+@media print {
+  .header, .tab-bar, .bottom-bar, .install-banner, .nc-raw-toggle, .nc-raw { display: none !important; }
+  body { background: white; color: black; }
+  .content { overflow: visible; }
+  .shell { height: auto; overflow: visible; }
+  .notam-card { border: 1px solid #ddd !important; background: white !important; break-inside: avoid; margin-bottom: 6px; }
+  .nc-summary { color: black !important; }
+  .nc-detail { color: #333 !important; }
+}
+
+::-webkit-scrollbar { width: 3px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useCallback, useRef, useEffect } = React;
+
+const CATEGORIES = [
+  { id: 'runway',   label: 'Runway Closures / Restrictions', icon: '✈' },
+  { id: 'taxiway',  label: 'Taxiway (Runway-Connecting)',    icon: '↔' },
+  { id: 'ils',      label: 'ILS / LOC / Glideslope U/S',    icon: '◈' },
+  { id: 'minimums', label: 'Approach Minimums Changes',      icon: '▽' },
+  { id: 'rvr',      label: 'RVR / Transmissometer U/S',      icon: '◎' },
+  { id: 'airport',  label: 'Airport / Apron Closures',       icon: '⬡' },
+  { id: 'navaid',   label: 'Nav Aids U/S (VOR/DME/GBAS)',    icon: '⊕' },
+  { id: 'gps',      label: 'GPS / ADS-B Degradation',        icon: '⊗' },
+  { id: 'airspace', label: 'Airspace (MOA/TFR/Restricted)',  icon: '△' },
+  { id: 'obstacle', label: 'Obstacle / Crane NOTAMs',        icon: '⚠' },
+  { id: 'sid',      label: 'SID / STAR / ODP Changes',       icon: '⟳' },
+  { id: 'weather',  label: 'Convective SIGMETs / Weather',   icon: '⛅' },
+];
+
+const SEV_ORDER = { red: 0, yellow: 1, green: 2 };
+const ROLE_ORDER = { DEP: 0, DEST: 1, ALT: 2, ENROUTE: 3 };
+
+const SYSTEM_PROMPT = `You are an expert aviation dispatcher and NOTAM analyst for Part 121 commercial operations. 
+Analyze the provided flight release and extract all NOTAMs.
+
+For each NOTAM return a JSON array of objects with these exact fields:
+- id: NOTAM identifier (e.g. "A1668/26")
+- airport: ICAO code (e.g. "KEWR") or "ENROUTE"
+- role: "DEP" | "DEST" | "ALT" | "ENROUTE"
+- category: one of: runway | taxiway | ils | minimums | rvr | airport | navaid | gps | airspace | obstacle | sid | weather
+- severity: "red" | "yellow" | "green"
+  red = directly affects safety/approach capability
+  yellow = awareness required
+  green = informational/low impact
+- summary: concise 1-line operational summary
+- detail: 1-2 sentence operational implication for crew
+- validity: validity period string
+- raw: original NOTAM text verbatim
+- taxiway_runway_direct: boolean (taxiway NOTAMs only — true if directly connects to runway surface; use uploaded diagrams if available)
+
+Severity guidance:
+RED: runway closure, ILS/LOC U/S on approach runway, RVR U/S at destination, CAT II/III NA, significant minimums raise, airport closure, convective SIGMET on route
+YELLOW: nav aids U/S affecting approaches, SID changes, obstacle cranes, GPS degradation, approach lights U/S, MOA/TFR on route
+GREEN: signage issues, distant obstacles, admin NOTAMs, taxiways not connecting to runways
+
+Return ONLY a valid JSON array. No markdown, no preamble.`;
+
+function App() {
+  const [tab, setTab] = useState('input');
+  const [releaseFile, setReleaseFile] = useState(null);
+  const [releaseText, setReleaseText] = useState('');
+  const [showText, setShowText] = useState(false);
+  const [diagrams, setDiagrams] = useState([]);
+  const [filters, setFilters] = useState(() => Object.fromEntries(CATEGORIES.map(c=>[c.id,true])));
+  const [loading, setLoading] = useState(false);
+  const [loadMsg, setLoadMsg] = useState('');
+  const [brief, setBrief] = useState(null);
+  const [expandedRaw, setExpandedRaw] = useState({});
+  const [showInstall, setShowInstall] = useState(true);
+  const [isIOS, setIsIOS] = useState(false);
+  const releaseRef = useRef();
+  const diagRef = useRef();
+
+  useEffect(() => {
+    setIsIOS(/iphone|ipad|ipod/i.test(navigator.userAgent));
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('./sw.js').catch(()=>{});
+    }
+  }, []);
+
+  const readB64 = f => new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(r.result.split(',')[1]); r.onerror=rej; r.readAsDataURL(f); });
+
+  const kwFallback = t => {
+    const u = t.toUpperCase();
+    if (/RWY.*(CLSD|U\/S)/.test(u)) return {category:'runway',severity:'red'};
+    if (/ILS.*(U\/S|NA)|LOC.*(U\/S)/.test(u)) return {category:'ils',severity:'red'};
+    if (/RVR.*(U\/S)|TRANSMISSOMETER/.test(u)) return {category:'rvr',severity:'red'};
+    if (/CAT (II|III).*(NA)|MDA|DA\s+\d/.test(u)) return {category:'minimums',severity:'red'};
+    if (/AD.*CLSD|AIRPORT.*CLSD/.test(u)) return {category:'airport',severity:'red'};
+    if (/TWY.*(CLSD|U\/S)/.test(u)) return {category:'taxiway',severity:'yellow'};
+    if (/VOR.*(U\/S)|DME.*(U\/S)|GBAS.*(U\/S)/.test(u)) return {category:'navaid',severity:'yellow'};
+    if (/GPS|ADS-B/.test(u)) return {category:'gps',severity:'yellow'};
+    if (/MOA|TFR|R\d{4}/.test(u)) return {category:'airspace',severity:'yellow'};
+    if (/CRANE|OBST/.test(u)) return {category:'obstacle',severity:'yellow'};
+    if (/SID|STAR|ODP/.test(u)) return {category:'sid',severity:'yellow'};
+    if (/SIGMET|CONVECTIVE|TS\s/.test(u)) return {category:'weather',severity:'red'};
+    return {category:'navaid',severity:'green'};
+  };
+
+  const analyze = async () => {
+    if (!releaseFile && !releaseText.trim()) return;
+    setLoading(true); setLoadMsg('Reading flight release...'); setBrief(null);
+    try {
+      let userContent = [];
+      if (releaseFile) {
+        setLoadMsg('Parsing PDF...');
+        const b64 = await readB64(releaseFile);
+        userContent.push({ type:'document', source:{ type:'base64', media_type:'application/pdf', data:b64 } });
+      }
+      if (releaseText.trim()) userContent.push({ type:'text', text:'FLIGHT RELEASE:\n'+releaseText });
+      if (diagrams.length > 0) {
+        setLoadMsg('Loading diagrams...');
+        for (const d of diagrams) {
+          const b64 = await readB64(d);
+          userContent.push({ type:'image', source:{ type:'base64', media_type: d.type||'image/png', data:b64 } });
+        }
+        userContent.push({ type:'text', text:'Above images are airport diagrams. Use them to determine taxiway→runway connections.' });
+      }
+      userContent.push({ type:'text', text:'Extract and analyze all NOTAMs. Return JSON array.' });
+      setLoadMsg('AI analyzing NOTAMs...');
+      const resp = await fetch('/api/analyze', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          model:'claude-sonnet-4-20250514', max_tokens:8000,
+          system: SYSTEM_PROMPT,
+          messages:[{ role:'user', content:userContent }]
+        })
+      });
+      const data = await resp.json();
+      const rawText = data.content?.find(b=>b.type==='text')?.text || '[]';
+      setLoadMsg('Processing...');
+      let notams = [];
+      try {
+        notams = JSON.parse(rawText.replace(/```json|```/g,'').trim());
+      } catch(e) {
+        notams = [{ id:'ERR', airport:'UNKNOWN', role:'ENROUTE', category:'navaid', severity:'yellow', summary:'Parse error — try pasting text instead of PDF', detail:'AI response could not be parsed.', validity:'N/A', raw:rawText }];
+      }
+      notams = notams.map(n => {
+        if (!n.category || !n.severity) { const fb=kwFallback(n.raw||n.summary||''); n.category=n.category||fb.category; n.severity=n.severity||fb.severity; }
+        return n;
+      });
+      const flightMatch = (releaseText + ' ' + (releaseFile?.name||'')).match(/[A-Z]{2,3}\d{3,4}/);
+      setBrief({ notams, flight: flightMatch?.[0]||'FLT BRIEF', generated: new Date().toUTCString(), hasDiagrams: diagrams.length>0 });
+      setTab('brief');
+    } catch(err) {
+      setBrief({ error:err.message, notams:[], flight:'ERROR', generated:new Date().toUTCString() });
+      setTab('brief');
+    }
+    setLoading(false);
+  };
+
+  const toggleFilter = id => setFilters(f=>({...f,[id]:!f[id]}));
+  const toggleRaw = key => setExpandedRaw(p=>({...p,[key]:!p[key]}));
+  const allOn = () => setFilters(Object.fromEntries(CATEGORIES.map(c=>[c.id,true])));
+  const allOff = () => setFilters(Object.fromEntries(CATEGORIES.map(c=>[c.id,false])));
+
+  const filtered = brief?.notams?.filter(n=>filters[n.category]) || [];
+  const airports = [...new Set(filtered.map(n=>n.airport))].sort((a,b)=>{
+    const ra = brief?.notams?.find(n=>n.airport===a)?.role||'ENROUTE';
+    const rb = brief?.notams?.find(n=>n.airport===b)?.role||'ENROUTE';
+    return (ROLE_ORDER[ra]??9)-(ROLE_ORDER[rb]??9);
+  });
+
+  const cRed = filtered.filter(n=>n.severity==='red').length;
+  const cYel = filtered.filter(n=>n.severity==='yellow').length;
+  const cGrn = filtered.filter(n=>n.severity==='green').length;
+
+  const exportPDF = () => {
+    if (!brief) return;
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ orientation:'p', unit:'mm', format:'letter' });
+    const pw = doc.internal.pageSize.getWidth();
+    let y = 20; const m = 15; const mw = pw - m*2;
+    doc.setFont('courier','bold'); doc.setFontSize(14); doc.setTextColor(0,200,130);
+    doc.text('NOTAM BRIEFING — '+brief.flight, m, y); y+=8;
+    doc.setFontSize(7.5); doc.setTextColor(120); doc.setFont('courier','normal');
+    doc.text('Generated: '+brief.generated, m, y); y+=5;
+    doc.text('FOR SITUATIONAL AWARENESS ONLY — VERIFY AGAINST OFFICIAL SOURCES', m, y); y+=10;
+    airports.forEach(ap => {
+      const apn = filtered.filter(n=>n.airport===ap);
+      if (!apn.length) return;
+      if (y>250){doc.addPage();y=20;}
+      doc.setFont('courier','bold'); doc.setFontSize(11); doc.setTextColor(77,166,255);
+      doc.text(ap, m, y); y+=7;
+      [...apn].sort((a,b)=>SEV_ORDER[a.severity]-SEV_ORDER[b.severity]).forEach(n=>{
+        if (y>260){doc.addPage();y=20;}
+        const col = n.severity==='red'?[220,50,50]:n.severity==='yellow'?[200,140,30]:[0,180,100];
+        doc.setFillColor(...col); doc.rect(m,y-3.5,2.5,4.5,'F');
+        doc.setFont('courier','bold'); doc.setFontSize(8); doc.setTextColor(...col);
+        doc.text(n.severity.toUpperCase(), m+4, y);
+        doc.setTextColor(80); doc.text(n.id||'', m+18, y); y+=5;
+        doc.setFont('courier','bold'); doc.setFontSize(9); doc.setTextColor(20);
+        const sl = doc.splitTextToSize(n.summary||'', mw-4);
+        doc.text(sl, m+4, y); y+=sl.length*4.5+2;
+        if (n.detail){ doc.setFont('courier','normal'); doc.setFontSize(7.5); doc.setTextColor(80);
+          const dl=doc.splitTextToSize(n.detail,mw-4); doc.text(dl,m+4,y); y+=dl.length*4+3; }
+        doc.setTextColor(160); doc.setFontSize(7);
+        if (n.validity){doc.text('Valid: '+n.validity,m+4,y);y+=4;}
+        doc.setDrawColor(220); doc.line(m,y,pw-m,y); y+=5;
+      });
+      y+=4;
+    });
+    doc.save('NOTAM_'+brief.flight+'.pdf');
+  };
+
+  return (
+    <div className="shell">
+      {/* HEADER */}
+      <header className="header">
+        <div className="header-left">
+          <div className="logo-mark"><div className="logo-inner"/></div>
+          <div>
+            <div className="app-title">NOTAM BRIEFER</div>
+            <div className="app-sub">Ops Intelligence</div>
+          </div>
+        </div>
+        <div className="header-actions">
+          {brief && !loading && (
+            <>
+              <div className="icon-btn" onClick={()=>window.print()} title="Print">🖨</div>
+              <div className="icon-btn" onClick={exportPDF} title="Export PDF">⬇</div>
+              <div className="icon-btn danger" onClick={()=>{setBrief(null);setReleaseFile(null);setReleaseText('');setDiagrams([]);setTab('input');}} title="Clear">✕</div>
+            </>
+          )}
+        </div>
+      </header>
+
+      {/* TABS */}
+      <div className="tab-bar">
+        <div className={`tab ${tab==='input'?'active':''}`} onClick={()=>setTab('input')}>◈ Input</div>
+        <div className={`tab ${tab==='filters'?'active':''}`} onClick={()=>setTab('filters')}>⊕ Filters</div>
+        <div className={`tab ${tab==='brief'?'active':''}`} onClick={()=>setTab('brief')}>
+          ▽ Brief {brief && !loading ? `(${filtered.length})` : ''}
+        </div>
+      </div>
+
+      {/* CONTENT */}
+      <div className="content">
+
+        {/* INPUT TAB */}
+        {tab==='input' && (
+          <div className="panel">
+            {isIOS && showInstall && (
+              <div className="install-banner">
+                <div className="install-icon">📲</div>
+                <div className="install-text">
+                  <div className="install-title">Add to Home Screen</div>
+                  <div className="install-sub">Tap the Share button → "Add to Home Screen" to install this as an app on your device.</div>
+                </div>
+                <div className="install-close" onClick={()=>setShowInstall(false)}>✕</div>
+              </div>
+            )}
+
+            <div className="s-label">Flight Release</div>
+            <div className={`upload-zone ${releaseFile?'active':''}`} onClick={()=>releaseRef.current.click()}>
+              <div className="upload-icon">📄</div>
+              <div className="upload-text"><strong>Tap to upload PDF</strong></div>
+              <div className="upload-sub">Republic / UAL / Any Part 121 release</div>
+            </div>
+            <input ref={releaseRef} type="file" accept=".pdf,.txt" style={{display:'none'}} onChange={e=>setReleaseFile(e.target.files[0])}/>
+            {releaseFile && (
+              <div className="file-badge">
+                <span className="ftag ftag-r">RELEASE</span>
+                <span className="file-badge-name">{releaseFile.name}</span>
+                <span className="file-badge-rm" onClick={()=>setReleaseFile(null)}>✕</span>
+              </div>
+            )}
+            <div style={{fontSize:'0.62rem',color:'var(--text-dimmer)',textAlign:'center',cursor:'pointer',margin:'8px 0',textDecoration:'underline'}} onClick={()=>setShowText(v=>!v)}>
+              {showText?'▲ Hide':'▼ Or paste release text'}
+            </div>
+            {showText && (
+              <textarea placeholder="Paste raw flight release text here..." value={releaseText} onChange={e=>setReleaseText(e.target.value)}/>
+            )}
+
+            <div style={{height:20}}/>
+            <div className="s-label">Airport Diagrams (Optional)</div>
+            <div className={`upload-zone ${diagrams.length>0?'active':''}`} onClick={()=>diagRef.current.click()}>
+              <div className="upload-icon">🗺</div>
+              <div className="upload-text"><strong>FAA / Jeppesen diagrams</strong></div>
+              <div className="upload-sub">Enables taxiway→runway analysis</div>
+            </div>
+            <input ref={diagRef} type="file" accept="image/*,.pdf" multiple style={{display:'none'}} onChange={e=>setDiagrams(p=>[...p,...Array.from(e.target.files)].slice(0,4))}/>
+            {diagrams.map((f,i)=>(
+              <div key={i} className="file-badge">
+                <span className="ftag ftag-d">DIAGRAM</span>
+                <span className="file-badge-name">{f.name}</span>
+                <span className="file-badge-rm" onClick={()=>setDiagrams(p=>p.filter((_,j)=>j!==i))}>✕</span>
+              </div>
+            ))}
+            {diagrams.length===0 && <div className="diag-note">Without diagrams, taxiway→runway connections are estimated by AI. Upload charts for precise analysis.</div>}
+            <div style={{height:20}}/>
+            <button className="btn btn-primary" disabled={(!releaseFile&&!releaseText.trim())||loading} onClick={analyze}>
+              {loading ? '⟳ Analyzing...' : '▶ Analyze Flight Release'}
+            </button>
+          </div>
+        )}
+
+        {/* FILTERS TAB */}
+        {tab==='filters' && (
+          <div className="panel">
+            <div className="s-label" style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+              <span>NOTAM Category Filters</span>
+              <div style={{display:'flex',gap:10}}>
+                <span className="fq-btn" onClick={allOn} style={{color:'var(--green)',borderColor:'var(--green-border)'}}>All On</span>
+                <span className="fq-btn" onClick={allOff} style={{color:'var(--red)',borderColor:'var(--red-border)'}}>All Off</span>
+              </div>
+            </div>
+            {CATEGORIES.map(cat=>(
+              <div key={cat.id} className="toggle-row" onClick={()=>toggleFilter(cat.id)}>
+                <div className={`toggle-label ${filters[cat.id]?'on':''}`}><span>{cat.icon}</span><span>{cat.label}</span></div>
+                <div className={`toggle-switch ${filters[cat.id]?'on':''}`}><div className="toggle-knob"/></div>
+              </div>
+            ))}
+            <div style={{height:20}}/>
+            <button className="btn btn-primary" disabled={(!releaseFile&&!releaseText.trim())||loading} onClick={()=>{analyze();}}>
+              {loading?'⟳ Analyzing...':'▶ Analyze Now'}
+            </button>
+          </div>
+        )}
+
+        {/* BRIEF TAB */}
+        {tab==='brief' && (
+          <div className="panel">
+            {loading && (
+              <div className="loading-state">
+                <div className="loading-ring"/>
+                <div className="loading-text">Analyzing NOTAMs</div>
+                <div className="loading-sub">{loadMsg}</div>
+              </div>
+            )}
+
+            {!loading && !brief && (
+              <div className="empty-state">
+                <div className="empty-hex">⬡</div>
+                <div className="empty-title">No Brief Yet</div>
+                <div className="empty-sub">Upload a flight release on the Input tab and tap Analyze to generate your NOTAM brief.</div>
+              </div>
+            )}
+
+            {!loading && brief && brief.error && (
+              <div className="disclaimer">⚠ Error: {brief.error}</div>
+            )}
+
+            {!loading && brief && !brief.error && (
+              <>
+                <div className="brief-header-card">
+                  <div className="brief-flight">{brief.flight}</div>
+                  <div className="brief-gen">{brief.generated}</div>
+                  {brief.hasDiagrams && <div style={{fontSize:'0.6rem',color:'var(--green)',marginTop:4}}>✓ Diagram analysis active</div>}
+                </div>
+
+                <div className="disclaimer">⚠ <strong>Decision support only.</strong> Verify all NOTAMs against official sources. Not for sole-source operational use.</div>
+
+                <div className="stat-row">
+                  <div className="stat-pill red"><div className="stat-num red">{cRed}</div><div className="stat-lbl red">Critical</div></div>
+                  <div className="stat-pill yellow"><div className="stat-num yellow">{cYel}</div><div className="stat-lbl yellow">Advisory</div></div>
+                  <div className="stat-pill green"><div className="stat-num green">{cGrn}</div><div className="stat-lbl green">Info</div></div>
+                </div>
+
+                {filtered.length===0 && (
+                  <div className="no-results">No NOTAMs match your current filters.<br/>Go to the Filters tab to adjust.</div>
+                )}
+
+                {airports.map(ap=>{
+                  const apn = filtered.filter(n=>n.airport===ap);
+                  if (!apn.length) return null;
+                  const role = brief.notams.find(n=>n.airport===ap)?.role||'ENROUTE';
+                  const sorted = [...apn].sort((a,b)=>SEV_ORDER[a.severity]-SEV_ORDER[b.severity]);
+                  const cats = [...new Set(sorted.map(n=>n.category))];
+                  return (
+                    <div key={ap}>
+                      <div className="apt-header">
+                        <div className="apt-icao">{ap}</div>
+                        <div className={`apt-role-tag role-${role.toLowerCase()}`}>{role}</div>
+                        <div className="apt-count">{apn.length} NOTAM{apn.length!==1?'s':''}</div>
+                      </div>
+                      {cats.map(cat=>{
+                        const cn = sorted.filter(n=>n.category===cat);
+                        const cd = CATEGORIES.find(c=>c.id===cat);
+                        return (
+                          <div key={cat}>
+                            <div className="cat-label">{cd?.icon} {cd?.label||cat}</div>
+                            {cn.map((n,i)=>{
+                              const key=`${ap}-${cat}-${i}`;
+                              return (
+                                <div key={key} className={`notam-card severity-${n.severity}`}>
+                                  <div className="nc-top">
+                                    <span className={`sev-badge badge-${n.severity}`}>{n.severity.toUpperCase()}</span>
+                                    {n.id && <span className="nc-id">{n.id}</span>}
+                                    <span className="nc-summary">{n.summary}</span>
+                                  </div>
+                                  {n.detail && <div className="nc-detail">{n.detail}</div>}
+                                  {n.category==='taxiway' && n.taxiway_runway_direct!==undefined && (
+                                    <div className={`nc-rwy-flag ${n.taxiway_runway_direct?'direct':'indirect'}`}>
+                                      {n.taxiway_runway_direct ? '⚠ DIRECTLY CONNECTS TO RUNWAY' : '○ Does not connect to runway'}
+                                    </div>
+                                  )}
+                                  <div className="nc-footer">
+                                    {n.validity && <span className="nc-validity">Valid: {n.validity}</span>}
+                                    <span className="nc-cat-tag">{cd?.icon} {cat}</span>
+                                    {n.raw && <span className="nc-raw-toggle" onClick={()=>toggleRaw(key)}>{expandedRaw[key]?'▲ Hide':'▼ Raw'}</span>}
+                                  </div>
+                                  {expandedRaw[key] && n.raw && <div className="nc-raw">{n.raw}</div>}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+                <div style={{height:20}}/>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* BOTTOM BAR */}
+      {tab==='brief' && brief && !loading && (
+        <div className="bottom-bar">
+          <div className="bottom-actions">
+            <div className="bottom-btn" onClick={()=>window.print()}>🖨 Print</div>
+            <div className="bottom-btn" onClick={exportPDF}>⬇ PDF</div>
+            <div className="bottom-btn primary" onClick={()=>setTab('input')}>+ New Brief</div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
